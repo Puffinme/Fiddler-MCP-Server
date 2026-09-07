@@ -419,6 +419,14 @@ class TestCompareSanitizeAndStatus(unittest.TestCase):
                 {"session_ids": ["1", "2", "3"]},
             ),
         )
+        self.assertEqual(
+            self.client._brief_tool_status("fiddler_mcp__live_stats"),
+            "  -> pulling stats",
+        )
+        self.assertEqual(
+            self.client._brief_tool_status("fiddler_mcp__ekfiddle_threats"),
+            "  -> search ekfiddle threats",
+        )
 
     def test_is_media_content_type(self):
         self.assertTrue(self.client._is_media_content_type("image/png"))
@@ -493,6 +501,7 @@ class TestBridgeHangFixes(unittest.TestCase):
         client.available_tools = [{"name": "fiddler_mcp__live_stats"}]
         client.verbose_logging = False
         client.show_progress = False
+        client.verbose_progress = False
         client.log_with_timestamp = MagicMock()
         client.mcp_stderr_file = None
         client.tool_timeout = 30
@@ -548,6 +557,51 @@ class TestBridgeHangFixes(unittest.TestCase):
             gemini.GeminiFiddlerClient._status_line_done("LLM report", 8.1),
             "LLM report (8.1s)",
         )
+
+    def test_status_wait_streamlined_omits_timing(self):
+        client = self._client()
+        client.show_progress = True
+        client.verbose_progress = False
+        emitted = []
+        client._emit_status = lambda line, newline=True: emitted.append((line, newline))
+        result, _elapsed = client._status_wait(
+            "LLM thinking", lambda: "ok", done_label="LLM reply"
+        )
+        self.assertEqual(result, "ok")
+        self.assertTrue(any(line == "LLM reply" and newline for line, newline in emitted))
+        self.assertFalse(any("LLM reply (" in line for line, _ in emitted))
+        client.log_with_timestamp.assert_called()
+
+    def test_status_wait_verbose_keeps_timing(self):
+        client = self._client()
+        client.show_progress = True
+        client.verbose_progress = True
+        emitted = []
+        client._emit_status = lambda line, newline=True: emitted.append((line, newline))
+        client._status_wait("LLM thinking", lambda: "ok", done_label="LLM reply")
+        self.assertTrue(any(line.startswith("LLM reply (") for line, _ in emitted))
+
+    def test_emit_http_ok_streamlined_clears(self):
+        client = self._client()
+        client.show_progress = True
+        client.verbose_progress = False
+        client._clear_status = MagicMock()
+        client._emit_status = MagicMock()
+        client._emit_http_ok(0.4)
+        client._clear_status.assert_called_once()
+        client._emit_status.assert_not_called()
+        client.log_with_timestamp.assert_called()
+
+    def test_emit_http_ok_verbose_prints(self):
+        client = self._client()
+        client.show_progress = True
+        client.verbose_progress = True
+        client._clear_status = MagicMock()
+        client._emit_status = MagicMock()
+        client._emit_http_ok(0.4)
+        client._clear_status.assert_not_called()
+        client._emit_status.assert_called_once()
+        self.assertEqual(client._emit_status.call_args[0][0], "HTTP 8081 ok (0.4s)")
 
     def test_streak_opens_on_second_timeout_success_resets(self):
         client = self._client()
@@ -662,7 +716,7 @@ class TestBridgeHangFixes(unittest.TestCase):
         self.assertIn("8081", out)
 
     def test_disable_quick_edit_does_not_raise(self):
-        gemini._disable_quick_edit()
+        gemini._enable_quick_edit()
         enhanced._disable_quick_edit()
 
 

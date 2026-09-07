@@ -147,9 +147,11 @@ There is no MCP console. 5ire-bridge.py is a hidden python.exe child of the Gemi
 
 Client status HTTP 8081 timeout means Flask on 127.0.0.1:8081 did not answer. MCP still replied with an error JSON.
 Client status MCP child timeout means the hidden child did not write a JSON line in time. HTTP 8081 may still be the cause.
+Default client console omits HTTP 8081 ok and LLM timings. python gemini-fiddler-client.py -v restores those lines and full JSON in mcp_server.err.log.
 
-If the Fiddler MCP Bridge title bar says Select, press Esc. A click in that console with Quick Edit pauses Flask.
-Quick Edit is disabled at start. Set FIDDLER_KEEP_QUICK_EDIT=1 to keep the old click-to-select behavior.
+The Gemini client console keeps Quick Edit on so you can select and copy text for reports. Set FIDDLER_DISABLE_QUICK_EDIT=1 to turn it off.
+The bridge console keeps Quick Edit off so a stray click does not pause Flask. If the Fiddler MCP Bridge title bar says Select, press Esc.
+Ctrl+Shift+C and Ctrl+Shift+V copy-paste are enabled by the launcher via HKCU\Console InterceptCopyPaste. Ctrl+C still stops a tool chain.
 Request logs scroll in the bridge console and are also written to enhanced-bridge.log next to the script.
 
 After two timeouts the client stops the tool chain. Next question retries.

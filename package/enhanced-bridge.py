@@ -1691,6 +1691,21 @@ class EnhancedFiddlerRealtimeBridge:
                         )
                         body_text = ""
 
+            request_body_text = d.get("requestBody") or d.get("request_body") or ""
+            if not request_body_text:
+                # Base64 request body (binary/large POST bodies, e.g. gzip telemetry)
+                req_b64 = d.get("requestBodyBase64") or d.get("request_body_base64")
+                if req_b64:
+                    try:
+                        request_body_text = base64.b64decode(req_b64).decode("utf-8", errors="replace")
+                    except Exception as e:
+                        session_id = d.get("id", d.get("session_id", "unknown"))
+                        print(
+                            f"[enhanced-bridge] Request base64 decode failed for session {session_id}: {type(e).__name__}: {e}",
+                            file=sys.stderr
+                        )
+                        request_body_text = ""
+
             timestamp_raw = d.get("received_at") or d.get("timestamp") or d.get("StartedDateTime")
             received_at = self._coerce_timestamp(timestamp_raw, default_epoch=now_epoch)
 
@@ -1711,7 +1726,7 @@ class EnhancedFiddlerRealtimeBridge:
                 "requestHeaders": d.get("requestHeaders") or d.get("request_headers") or {},
                 "responseHeaders": d.get("responseHeaders") or d.get("response_headers") or {},
                 "responseBody": body_text,
-                "requestBody": d.get("requestBody") or d.get("request_body") or "",
+                "requestBody": request_body_text,
                 "received_at": received_at,
                 "received_at_iso": datetime.utcfromtimestamp(received_at).isoformat() + "Z",
                 "ekfiddleComments": d.get("ekfiddleComments") or "",

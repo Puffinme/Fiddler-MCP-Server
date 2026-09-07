@@ -137,8 +137,8 @@ Hang UX
 H1. Happy-path status lines
     /investigate on a live buffer
     Expect: breadcrumbs like -> session_body N unchanged
-    Expect: LLM thinking Ns then LLM reply
-    Expect: HTTP 8081 ok on tool calls
+    Expect: LLM reply without timings (default). python gemini-fiddler-client.py -v restores LLM reply (Ns) and HTTP 8081 ok
+    Expect: no HTTP 8081 ok line in default mode. Timeouts still print.
 
 H2. Flask down mid-investigate
     Stop enhanced-bridge or pause its console, then ask again

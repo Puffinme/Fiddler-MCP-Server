@@ -571,6 +571,10 @@ REM ============================================================================
 set BRIDGE_SCRIPT=%~dp0enhanced-bridge.py
 set CLIENT_SCRIPT=%~dp0gemini-fiddler-client.py
 
+REM Enable Ctrl+Shift+C/V copy-paste for cmd consoles opened below (HKCU, no admin)
+reg add "HKCU\Console\%%SystemRoot%%_system32_cmd.exe" /v InterceptCopyPaste /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKCU\Console\%%SystemRoot%%_SysWOW64_cmd.exe" /v InterceptCopyPaste /t REG_DWORD /d 1 /f >nul 2>&1
+
 REM Check if scripts exist
 if not exist "%BRIDGE_SCRIPT%" (
     echo    ERROR: enhanced-bridge.py not found

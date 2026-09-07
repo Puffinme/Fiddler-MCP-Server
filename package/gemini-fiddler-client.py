@@ -46,12 +46,13 @@ except ImportError:
     Console = None  # type: ignore
     Markdown = None  # type: ignore
 
-def _disable_quick_edit() -> None:
-    """Clear Windows Quick Edit so a console click does not pause the process."""
-    if os.environ.get("FIDDLER_KEEP_QUICK_EDIT", "").strip().lower() in {"1", "true", "yes", "on"}:
-        return
+def _enable_quick_edit() -> None:
+    """Enable Windows Quick Edit so console text can be selected and copied for
+    reports. Set FIDDLER_DISABLE_QUICK_EDIT=1 to turn it off (a click then no
+    longer pauses the process)."""
     if sys.platform != "win32":
         return
+    disable = os.environ.get("FIDDLER_DISABLE_QUICK_EDIT", "").strip().lower() in {"1", "true", "yes", "on"}
     try:
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -59,8 +60,11 @@ def _disable_quick_edit() -> None:
         mode = ctypes.c_uint()
         if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
             return
-        new_mode = mode.value | 0x0080
-        new_mode &= ~0x0040
+        new_mode = mode.value | 0x0080  # ENABLE_EXTENDED_FLAGS
+        if disable:
+            new_mode &= ~0x0040  # clear ENABLE_QUICK_EDIT_MODE
+        else:
+            new_mode |= 0x0040  # set ENABLE_QUICK_EDIT_MODE
         kernel32.SetConsoleMode(handle, new_mode)
     except Exception:
         return
@@ -378,6 +382,7 @@ class GeminiFiddlerClient:
         self.tool_timeout = int(os.environ.get("GEMINI_TOOL_TIMEOUT", "30"))  # seconds
         self.gemini_timeout = int(os.environ.get("GEMINI_API_TIMEOUT", "60"))  # seconds
         self.show_progress = os.environ.get("GEMINI_HIDE_PROGRESS", "").strip() != "1"
+        self.verbose_progress = os.environ.get("GEMINI_VERBOSE_PROGRESS", "").strip() == "1"
         self.max_followups = int(os.environ.get("GEMINI_MAX_TOOL_CALLS", "20"))  # Maximum tool calls per query
         self._analyzed_session_ids: set = set()
         self._last_search_args: Dict[str, Any] = {}
@@ -890,13 +895,13 @@ class GeminiFiddlerClient:
                 return f"  -> compare {shown}{extra}"
             return "  -> compare"
         if short == "ekfiddle_threats":
-            return "  -> ekfiddle threats"
+            return "  -> search ekfiddle threats"
         if short == "ekfiddle_sessions":
             return "  -> ekfiddle sessions"
         if short == "live_sessions":
             return "  -> live sessions"
         if short == "live_stats":
-            return "  -> stats"
+            return "  -> pulling stats"
         if short == "sessions_timeline":
             return "  -> timeline"
         if short == "sessions_clear":
@@ -1013,11 +1018,28 @@ class GeminiFiddlerClient:
             sys.stdout.write(f"\r  {line}{pad}")
         sys.stdout.flush()
 
-    def _status_wait(self, wait_label: str, fn, done_label: Optional[str] = None):
+    def _clear_status(self) -> None:
+        if not getattr(self, "show_progress", True):
+            return
+        pad = "                    "
+        sys.stdout.write("\r" + pad + "\r")
+        sys.stdout.flush()
+
+    def _emit_http_ok(self, elapsed_s: float) -> None:
+        timed = self._status_line_done("HTTP 8081 ok", elapsed_s)
+        self.log_with_timestamp(timed, to_console=False)
+        if getattr(self, "verbose_progress", False):
+            self._emit_status(timed)
+        else:
+            self._clear_status()
+
+    def _status_wait(self, wait_label: str, fn, done_label: Optional[str] = None, show_wait: Optional[bool] = None):
         """Run fn while ticking wait_label with elapsed seconds. Returns (result, elapsed_s)."""
         start = time.time()
         stop = threading.Event()
         show = getattr(self, "show_progress", True)
+        if show_wait is False:
+            show = False
 
         def tick() -> None:
             while not stop.wait(1.0):
@@ -1035,7 +1057,12 @@ class GeminiFiddlerClient:
         stop.set()
         elapsed_s = time.time() - start
         if done_label is not None:
-            self._emit_status(self._status_line_done(done_label, elapsed_s), newline=True)
+            timed = self._status_line_done(done_label, elapsed_s)
+            self.log_with_timestamp(timed, to_console=False)
+            if getattr(self, "verbose_progress", False):
+                self._emit_status(timed, newline=True)
+            else:
+                self._emit_status(done_label, newline=True)
         return result, elapsed_s
 
     @staticmethod
@@ -1768,6 +1795,7 @@ class GeminiFiddlerClient:
                 lambda: self.send_mcp_request(
                     "tools/call", {"name": tool_name, "arguments": arguments}
                 ),
+                show_wait=getattr(self, "verbose_progress", False),
             )
         except RuntimeError as exc:
             elapsed_s = time.time() - wait_started
@@ -1799,7 +1827,7 @@ class GeminiFiddlerClient:
                     "Skip media bodies; analyze JS/HTML/JSON sessions instead."
                 )
                 self.log_with_timestamp(msg, to_console=True, prefix="[!] ")
-                self._emit_status(self._status_line_done("HTTP 8081 ok", elapsed_s))
+                self._emit_http_ok(elapsed_s)
                 return {
                     "success": False,
                     "error": msg,
@@ -1832,7 +1860,7 @@ class GeminiFiddlerClient:
                         f"Bridge Result: {elapsed_ms}ms, success=true, sessions={count}, suspicious={suspicious}, ekfiddle={ekfiddle}",
                         to_console=False,
                     )
-                    self._emit_status(self._status_line_done("HTTP 8081 ok", elapsed_s))
+                    self._emit_http_ok(elapsed_s)
                 elif "response_body" in result or "responseBody" in result:
                     body = result.get("response_body", "") or result.get("responseBody", "") or ""
                     body_len = len(body)
@@ -1844,23 +1872,23 @@ class GeminiFiddlerClient:
                     )
                     if host:
                         self.log_with_timestamp(f"Bridge Result: host={host}", to_console=False)
-                    self._emit_status(self._status_line_done("HTTP 8081 ok", elapsed_s))
+                    self._emit_http_ok(elapsed_s)
                 else:
                     result_size = len(json.dumps(result))
                     self.log_with_timestamp(
                         f"Bridge Result: {elapsed_ms}ms, success=true, result_size={self._format_size(result_size)}",
                         to_console=False,
                     )
-                    self._emit_status(self._status_line_done("HTTP 8081 ok", elapsed_s))
+                    self._emit_http_ok(elapsed_s)
             else:
                 self.log_with_timestamp(
                     f"Bridge Result: {elapsed_ms}ms, unexpected_type={type(result)}",
                     to_console=False,
                 )
-                self._emit_status(self._status_line_done("HTTP 8081 ok", elapsed_s))
+                self._emit_http_ok(elapsed_s)
         except Exception as e:
             self.log_with_timestamp(f"Bridge Result: {elapsed_ms}ms, parse_error={e}", to_console=False)
-            self._emit_status(self._status_line_done("HTTP 8081 ok", elapsed_s))
+            self._emit_http_ok(elapsed_s)
 
         self._note_tool_outcome(result if isinstance(result, dict) else None)
 
@@ -3961,10 +3989,25 @@ def create_config_file():
 
 def main():
     """Main entry point"""
+    import argparse
     import platform
     import signal
 
-    _disable_quick_edit()
+    parser = argparse.ArgumentParser(
+        prog="gemini-fiddler-client.py",
+        description="Fiddler Traffic Analyzer client",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Detailed console output (per-call timings, HTTP status) and full JSON logging",
+    )
+    cli_args = parser.parse_args()
+    if cli_args.verbose:
+        os.environ["GEMINI_VERBOSE_PROGRESS"] = "1"
+        os.environ["GEMINI_FIDDLER_VERBOSE_LOG"] = "1"
+
+    _enable_quick_edit()
 
     print("\nFiddler Traffic Analyzer (Gemini default; DeepSeek / OpenRouter optional)")
     print("=" * 70)

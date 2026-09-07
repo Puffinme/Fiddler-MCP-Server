@@ -8,6 +8,10 @@ REM ============================================================================
 
 cd /d "%~dp0"
 
+REM Enable Ctrl+Shift+C/V copy-paste for cmd consoles opened below (HKCU, no admin)
+reg add "HKCU\Console\%%SystemRoot%%_system32_cmd.exe" /v InterceptCopyPaste /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKCU\Console\%%SystemRoot%%_SysWOW64_cmd.exe" /v InterceptCopyPaste /t REG_DWORD /d 1 /f >nul 2>&1
+
 echo ============================================================================
 echo   Fiddler MCP Start
 echo ============================================================================

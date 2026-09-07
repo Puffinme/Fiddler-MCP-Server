@@ -549,24 +549,42 @@ class Handlers
 			json += '"_simplified":true},';
 			
 			// Add request body (for POST analysis)
-			json += '"requestBody":"';
-			if (oSession.RequestMethod == "POST" && oSession.requestBodyBytes) {
+			// Mirror the response-body strategy: base64 for binary or large bodies.
+			// GetRequestBodyAsString mangles binary (gzip telemetry, protobuf) into high
+			// chars that corrupt the payload, so only text MIME under the threshold is
+			// inlined; everything else is preserved verbatim as base64.
+			var USE_BASE64_THRESHOLD: int = 1000; // 1KB - prioritize reliability over readability
+			var reqCtype: String = "";
+			if (oSession.oRequest && oSession.oRequest["Content-Type"]) {
+				reqCtype = oSession.oRequest["Content-Type"];
+			}
+			if (oSession.RequestMethod == "POST" && oSession.requestBodyBytes && oSession.requestBodyBytes.Length > 0 && oSession.requestBodyBytes.Length <= BODY_MAX_BYTES) {
 				try {
-					var requestText: String = oSession.GetRequestBodyAsString();
-					if (requestText && requestText.length > 0 && requestText.length < 5000) {
-						json += McpJsonEscape(requestText);
+					if (McpIsAllowedTextMime(reqCtype) && oSession.requestBodyBytes.Length <= USE_BASE64_THRESHOLD) {
+						var requestText: String = oSession.GetRequestBodyAsString();
+						if (requestText && requestText.length > 0) {
+							json += '"requestBody":"' + McpJsonEscape(requestText) + '",';
+						} else {
+							json += '"requestBody":"",';
+						}
+					} else {
+						json += '"requestBodyBase64":"' + System.Convert.ToBase64String(oSession.requestBodyBytes) + '",';
+						json += '"requestBodyEncoding":"base64",';
+						json += '"requestBody":"",';
 					}
 				} catch (e) {
 					// If body extraction fails, log and continue without it
 					FiddlerApplication.Log.LogString("MCP: Failed to extract request body for session " + oSession.id + ": " + e.Message);
+					json += '"requestBody":"",';
 				}
+			} else {
+				json += '"requestBody":"",';
 			}
-			json += '",';
 			
 		// Add response body for threat detection (gate by MIME type and size)
 		// Strategy: Use base64 encoding for bodies >1KB to avoid JSON escaping edge cases
 		// JavaScript files often contain complex code that can break JSON escaping
-		var USE_BASE64_THRESHOLD: int = 1000; // 1KB - prioritize reliability over readability
+		USE_BASE64_THRESHOLD = 1000; // 1KB - prioritize reliability over readability
 		
 		if (oSession.responseBodyBytes && contentLength > 0 && contentLength <= BODY_MAX_BYTES) {
 			try {
@@ -622,7 +640,11 @@ class Handlers
 		var wc: System.Net.WebClient = null;
 		try {
 			wc = new System.Net.WebClient();
-			wc.Headers.Add("Content-Type", "application/json");
+			// Force UTF-8 so non-ASCII bytes (binary POST bodies, gzip telemetry) match
+			// the bridge's strict UTF-8 JSON decode. Default WebClient.Encoding is ANSI
+			// and corrupts any char above 0x7F, breaking json.loads on the bridge.
+			wc.Encoding = System.Text.Encoding.UTF8;
+			wc.Headers.Add("Content-Type", "application/json; charset=utf-8");
 			var response: String = wc.UploadString(MCP_URL + MCP_POST_ENDPOINT, "POST", String(jsonData));
 			
 			// Parse response to check for errors
