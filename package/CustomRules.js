@@ -67,9 +67,10 @@ class Handlers
 	public static var MCP_TIMEOUT_MS: int = 2500; // not used by WebClient, kept for compatibility
 
 	// Toggle in Rules menu to enable automatic real-time posts
+	// Enabled by default so capture starts posting right after install
 	// NOTE: Posts are now asynchronous via ThreadPool to prevent Fiddler UI blocking
 	public static RulesOption("Post to MCP in real-time")
-	var m_McpLive: boolean = false;
+	var m_McpLive: boolean = true;
 
 	// Only text responses get bodies posted; others are metadata-only
 	public static var BODY_MIME_ALLOW: String[] = [

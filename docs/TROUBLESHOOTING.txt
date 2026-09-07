@@ -150,7 +150,7 @@ Client status MCP child timeout means the hidden child did not write a JSON line
 
 If the Fiddler MCP Bridge title bar says Select, press Esc. A click in that console with Quick Edit pauses Flask.
 Quick Edit is disabled at start. Set FIDDLER_KEEP_QUICK_EDIT=1 to keep the old click-to-select behavior.
-Request logs go to enhanced-bridge.log next to the script.
+Request logs scroll in the bridge console and are also written to enhanced-bridge.log next to the script.
 
 After two timeouts the client stops the tool chain. Next question retries.
 

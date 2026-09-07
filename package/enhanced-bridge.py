@@ -42,6 +42,25 @@ def _disable_quick_edit() -> None:
     except Exception:
         return
 
+
+def _enable_ansi_console() -> None:
+    """Turn on virtual terminal processing so werkzeug request logs render as
+    colour instead of raw ANSI escape codes in the Windows console."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+        for handle_id in (-11, -12):  # STD_OUTPUT_HANDLE, STD_ERROR_HANDLE
+            handle = kernel32.GetStdHandle(handle_id)
+            mode = ctypes.c_uint()
+            if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                continue
+            kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING)
+    except Exception:
+        return
+
 class EnhancedFiddlerMCPBridge:
     def __init__(self):
         self.capabilities = {
@@ -3293,6 +3312,7 @@ class EnhancedFiddlerRealtimeBridge:
     def run(self, host='localhost', port=8081):
         """Start the enhanced real-time bridge server"""
         _disable_quick_edit()
+        _enable_ansi_console()
         self.start_time = time.time()
         log_dir = os.path.dirname(os.path.abspath(__file__))
         log_path = os.path.join(log_dir, "enhanced-bridge.log")
@@ -3308,7 +3328,7 @@ class EnhancedFiddlerRealtimeBridge:
             wz.handlers = [h for h in wz.handlers if not isinstance(h, logging.FileHandler)]
             wz.addHandler(file_handler)
             err_handler = logging.StreamHandler(sys.stderr)
-            err_handler.setLevel(logging.WARNING)
+            err_handler.setLevel(logging.INFO)
             wz.addHandler(err_handler)
         except Exception:
             pass
@@ -3351,6 +3371,7 @@ class EnhancedFiddlerRealtimeBridge:
 
 if __name__ == "__main__":
     _disable_quick_edit()
+    _enable_ansi_console()
     print(" Enhanced Fiddler Bridge - Streamlined Toolset")
     print(" Windows-compatible on port 8081")
     print()
