@@ -303,6 +303,28 @@ def provider_for_model(model_name: str) -> str:
     return "gemini"
 
 
+def select_available_provider(provider: str, model: str, keys: Dict[str, str]):
+    """Keep launch smooth when only some keys are set.
+
+    If the chosen provider has a key, return it unchanged. Otherwise fall back to
+    the first provider that does have a key, switching to that provider's default
+    model unless the current model already belongs to it. Returns (provider, model).
+    """
+    defaults = {
+        "gemini": DEFAULT_GEMINI_MODEL,
+        "deepseek": DEFAULT_DEEPSEEK_MODEL,
+        "openrouter": DEFAULT_OPENROUTER_MODEL,
+    }
+    if keys.get(provider):
+        return provider, model
+    fallback = next((p for p in ("gemini", "deepseek", "openrouter") if keys.get(p)), None)
+    if not fallback:
+        return provider, model
+    if provider_for_model(model) != fallback:
+        model = defaults[fallback]
+    return fallback, model
+
+
 def resolve_model_identifier(model_identifier: str) -> Optional[str]:
     mid = (model_identifier or "").strip()
     if mid in AVAILABLE_MODELS:
@@ -3889,16 +3911,18 @@ def create_config_file():
     model_choice = input(f"\nModel [1 for {DEFAULT_GEMINI_MODEL}]: ").strip() or "1"
     model = resolve_model_identifier(model_choice) or model_choice
     provider = provider_for_model(model)
-    if provider == "deepseek" and not deepseek_api_key:
-        print("[X] DeepSeek model selected but no DeepSeek API key. Exiting.")
-        sys.exit(1)
-    if provider == "openrouter" and not openrouter_api_key:
-        print("[X] OpenRouter model selected but no OpenRouter API key. Exiting.")
-        sys.exit(1)
-    if provider == "gemini" and not api_key:
-        print("[X] Gemini model selected but no Gemini API key. Exiting.")
-        sys.exit(1)
-    
+    # At least one key was entered above. If the chosen model's provider has no
+    # key but another entered key exists, fall back so setup completes instead
+    # of exiting.
+    chosen_provider = provider
+    provider, model = select_available_provider(provider, model, {
+        "gemini": api_key,
+        "deepseek": deepseek_api_key,
+        "openrouter": openrouter_api_key,
+    })
+    if provider != chosen_provider:
+        print(f"[!] No {chosen_provider} key entered. Using {provider} instead.")
+
     print(f"\n[+] Selected provider={provider} model={model}")
     
     # Detect OS and use appropriate Python command
@@ -3994,6 +4018,23 @@ def main():
         api_key = (config.get("api_key") or os.getenv("GEMINI_API_KEY") or "").strip()
         deepseek_api_key = (config.get("deepseek_api_key") or os.getenv("DEEPSEEK_API_KEY") or "").strip()
         openrouter_api_key = (config.get("openrouter_api_key") or os.getenv("OPENROUTER_API_KEY") or "").strip()
+
+        # If the selected provider has no key but another one does, use the
+        # provider that has a key so the client still reaches chat instead of
+        # dead-ending when only one key is configured.
+        provider_keys = {
+            "gemini": api_key,
+            "deepseek": deepseek_api_key,
+            "openrouter": openrouter_api_key,
+        }
+        resolved_provider, resolved_model = select_available_provider(provider, model, provider_keys)
+        if resolved_provider != provider or resolved_model != model:
+            print(f"[!] No {provider} key configured. Using {resolved_provider} (key present); switch anytime with /model.")
+            provider, model = resolved_provider, resolved_model
+            try:
+                merge_save_config({"provider": provider, "model": model})
+            except Exception:
+                pass
 
         if provider == "deepseek" and not deepseek_api_key:
             print("[X] DeepSeek provider selected but deepseek_api_key / DEEPSEEK_API_KEY missing.")
